@@ -1,6 +1,6 @@
 """Runs on the host PC next to Simulink.
 
-Simulink -> laptop: each pose (x, y, z, roll, pitch, yaw, isTracking as doubles) from the QUARC Stream
+Simulink -> laptop: both poses (drone 1 then drone 2: x, y, z, roll, pitch, yaw, isTracking as doubles) from the QUARC Stream
                     Server (port 18005) goes to the laptop as ONE UDP packet (port 18010).
 laptop -> Simulink: after `ros2 service call /targets/send std_srvs/srv/Trigger` on the laptop, the fire/tap
                     targets arrive here by UDP (port 18011) and are sent to Simulink as the Stream Server's
@@ -24,7 +24,7 @@ LAPTOP_IP = "192.168.2.24"     # laptop running ROS (check with `ip addr` on the
 LAPTOP_PORT = 18010            # tcp_pose_bridge (mode: udp)
 TARGETS_PORT = 18011           # targets from the laptop's /targets/send arrive here
 
-SIMULINK_DATA_DIMENSIONS = 7   # x, y, z, roll, pitch, yaw, isTracking
+SIMULINK_DATA_DIMENSIONS = 14  # drone 1: x,y,z,roll,pitch,yaw,isTracking, then drone 2: the same 7 (must match Simulink)
 MAX_ROWS = 10                  # must match the laptop (max_rows) and Simulink's receive size
 REPLY_SIZE = 1 + 4 * MAX_ROWS  # doubles Simulink's Stream Server receives (41)
 SEND_REPLY = True              # False = never send anything to Simulink (diagnostic: is the reply the problem?)

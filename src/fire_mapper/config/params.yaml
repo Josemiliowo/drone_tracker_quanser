@@ -46,7 +46,7 @@ tcp_pose_bridge:                      # flight: poses from Simulink (mocap_sourc
     mode: udp                         # relay script sends one UDP packet per pose (never blocks; WiFi-safe)
     host: 0.0.0.0                     # (server = TCP relay; client + 192.168.2.11:18005 = direct to QUARC)
     port: 18010
-    bodies: [RigidBody_Drone1]        # one entry per drone in each packet, in packet order
+    bodies: [RigidBody_Drone1, RigidBody_Drone2]  # packet order: drone 1's 7 values, then drone 2's
     fields: ['x', 'y', 'z', 'roll', 'pitch', 'yaw', 'tracked']  # packet order; keep quotes; '-z' flips a sign
     dtype: f8                         # Simulink double
     byte_order: '<'

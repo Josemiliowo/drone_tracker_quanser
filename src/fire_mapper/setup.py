@@ -30,6 +30,7 @@ setup(
             'drone_markers = fire_mapper.drone_markers:main',
             'tcp_pose_bridge = fire_mapper.tcp_pose_bridge:main',
             'drone_link = fire_mapper.drone_link:main',
+            'fake_drone = fire_mapper.fake_drone:main',
         ],
     },
 )
