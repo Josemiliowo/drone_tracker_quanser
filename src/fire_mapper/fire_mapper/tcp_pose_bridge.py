@@ -104,7 +104,8 @@ class TcpPoseBridge(Node):
                            for b in self.bodies}
         self.last_vals, self.last_pub = {}, {}
         self.was_tracked, self.untracked_since = {}, {}
-        self.n_pub = self.n_tracked = self.n_untracked = self.n_lost = 0
+        self.n_pub = self.n_lost = 0
+        self.n_tracked, self.n_untracked = {}, {}           # per body
         self.max_lost = 0.0
         self.raw_values, self.last_raw = None, None
         self.get_logger().info(f'{self.mode} {self.host}:{self.port}, record = {self.fmt.size} bytes '
@@ -118,21 +119,30 @@ class TcpPoseBridge(Node):
             state = 'receiving' if fresh else 'waiting for UDP packets'
         else:
             state = 'connected' if self.connected else 'waiting for connection'
-        n_all = self.n_tracked + self.n_untracked
-        tracked = f'{100.0 * self.n_tracked / n_all:.0f}%' if n_all else '-'
-        if not self.has_flag:
-            tracked += ' (no tracked field)'
+        parts, never = [], []
+        for b in self.bodies:
+            t, u = self.n_tracked.get(b, 0), self.n_untracked.get(b, 0)
+            if t + u:
+                parts.append(f'{b} {100.0 * t / (t + u):.0f}%')
+                if t == 0:
+                    never.append(b)
+            else:
+                parts.append(f'{b} no data')
+        tracked = ', '.join(parts) + ('' if self.has_flag else ' (no tracked field)')
         msg = (f'{state}, {self.n_rx / 5.0:.0f} records/s, longest gap {self.max_gap * 1000:.0f} ms | '
                f'published {self.n_pub / 5.0:.0f}/s, tracked {tracked}, tracking lost {self.n_lost}x '
                f'(longest {self.max_lost * 1000:.0f} ms) | last {self.fields}: {self.last_raw}')
-        if n_all and self.n_tracked == 0:
-            self.get_logger().warn(msg + '\n  -> OptiTrack is NOT tracking the drone: it is shown at its last '
-                                   'pose, but no detections are mapped until tracking returns.')
+        if never:
+            note = (' Drone 1 untracked: no detections are mapped until tracking returns.'
+                    if self.bodies[0] in never else '')
+            self.get_logger().warn(msg + f'\n  -> OptiTrack is NOT tracking {", ".join(never)} '
+                                   f'(shown at its last pose).{note}')
         elif self.max_gap > 0.2 or self.n_lost:   # separate calls: rclpy forbids changing severity at one call site
             self.get_logger().warn(msg)
         else:
             self.get_logger().info(msg)
-        self.n_rx, self.max_gap, self.n_pub, self.n_tracked, self.n_untracked = 0, 0.0, 0, 0, 0
+        self.n_rx, self.max_gap, self.n_pub = 0, 0.0, 0
+        self.n_tracked, self.n_untracked = {}, {}
         self.n_lost, self.max_lost = 0, 0.0
 
     def mark_rx(self, n):
@@ -144,25 +154,38 @@ class TcpPoseBridge(Node):
 
     def loop_udp(self):
         size = self.fmt.size
+        body_size = size // len(self.bodies)              # bytes of one drone (len(fields) values)
+        code = self.fmt.format[-1]
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 << 16)  # small buffer: never queue old poses
         sock.bind((self.host, self.port))
         sock.settimeout(1.0)
-        bad = 0
+        bad, warned_partial = 0, False
         while rclpy.ok():
             try:
                 data, addr = sock.recvfrom(65536)
             except socket.timeout:
                 continue
-            if len(data) < size or len(data) % size:
+            if len(data) == size:                          # one datagram = one record with all drones
+                values, bodies = self.fmt.unpack(data), self.bodies
+            elif len(data) % body_size == 0 and len(data) < size:
+                # fewer drones than configured (e.g. Simulink still sends only drone 1): decode those
+                m = len(data) // body_size
+                values = struct.unpack(f'{self.fmt.format[0]}{m * len(self.fields)}{code}', data)
+                bodies = self.bodies[:m]
+                if not warned_partial:
+                    self.get_logger().warn(f'packets carry {m} of {len(self.bodies)} drones ({len(data)} bytes): '
+                                           f'publishing only {bodies}')
+                    warned_partial = True
+            else:
                 bad += 1
-                self.get_logger().warn(f'datagram of {len(data)} bytes from {addr[0]}, expected '
-                                       f'{size} ({bad} so far)', throttle_duration_sec=5.0)
+                self.get_logger().warn(f'datagram of {len(data)} bytes from {addr[0]}, expected {size} '
+                                       f'({len(self.bodies)} drones x {len(self.fields)} doubles) ({bad} so far)',
+                                       throttle_duration_sec=5.0)
                 continue
-            n = len(data) // size
-            self.mark_rx(n)
-            self.raw_values = self.fmt.unpack(data[(n - 1) * size:])
-            self.publish(decode_record(self.raw_values, self.bodies, self.fields, self.deg))
+            self.mark_rx(1)
+            self.raw_values = values
+            self.publish(decode_record(values, bodies, self.fields, self.deg))
 
     def loop(self):
         if self.mode == 'udp':
@@ -223,12 +246,12 @@ class TcpPoseBridge(Node):
         for body, (p, q, tracked) in poses.items():
             # tracking statistics
             if tracked:
-                self.n_tracked += 1
+                self.n_tracked[body] = self.n_tracked.get(body, 0) + 1
                 if self.was_tracked.get(body) is False:          # tracking came back
                     lost = now - self.untracked_since[body]
                     self.max_lost = max(self.max_lost, lost)
             else:
-                self.n_untracked += 1
+                self.n_untracked[body] = self.n_untracked.get(body, 0) + 1
                 if self.was_tracked.get(body, True):             # tracking just got lost
                     self.untracked_since[body] = now
                     self.n_lost += 1
