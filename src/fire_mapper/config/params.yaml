@@ -1,0 +1,97 @@
+# All tunables in one place. Values marked MEASURE must be set for your drone/arena.
+
+# ---------------- drone 1 (Jetson) ----------------
+/drone1/yolo_detector:
+  ros__parameters:
+    model: /models/best.engine        # YOLO11n (ultralytics 8.4), export ON the Jetson: yolo export model=best.pt format=engine half=True imgsz=640
+    rename_from: [fuego, toma]        # class names inside the model
+    rename_to: [fire, tap]            # names used by the map / markers / drone 2
+    conf: 0.5
+    imgsz: 640
+    image_topic: camera/color/image_raw
+    annotated_rate: 5.0
+
+/drone1/detection_localizer:
+  ros__parameters:
+    map_frame: map
+    depth_topic: camera/aligned_depth_to_color/image_raw
+    info_topic: camera/color/camera_info
+    depth_min: 0.3                    # D435 min usable depth (m)
+    depth_max: 3.0                    # D435 reliable range (m)
+    bbox_shrink: 0.5                  # use the central 50% of the box for depth
+    use_fallback: true                # ray/plane intersection when depth is invalid
+    fallback_plane_z: 0.05            # plane height (m) for classes not listed below
+    fallback_classes: [fire, tap]     # fire is 10 cm tall, tap 16 cm
+    fallback_heights: [0.08, 0.12]    # ~0.75 x height: the camera sees the top part of the object
+    sync_slop: 0.05
+    tf_timeout: 0.1
+
+/drone1/cloud_throttle:
+  ros__parameters:
+    rate: 2.0                         # Hz of point cloud sent over WiFi
+
+# ---------------- ground station (laptop) ----------------
+mocap_tf_bridge:
+  ros__parameters:
+    bodies: [drone1, drone2]                          # ROS frame names
+    mocap_names: [RigidBody_Drone1, RigidBody_Drone2] # Motive names; Drone1 streaming ID = 1 (drone 2: CHECK)
+    pose_topic_fmt: /mocap/{mocap}/pose               # from vrpn_mocap or tcp_pose_bridge
+    up_axis: 'y'                                      # Motive streams Y-up (do not change Motive)
+    body_yaw_offsets_deg: [0.0, 0.0]                  # set if nose != rigid-body +X (see README)
+    map_frame: map
+    restamp: false                                    # true if the driver stamps with Motive's clock
+
+tcp_pose_bridge:                      # flight: poses from Simulink (mocap_source:=tcp)
+  ros__parameters:
+    mode: udp                         # relay script sends one UDP packet per pose (never blocks; WiFi-safe)
+    host: 0.0.0.0                     # (server = TCP relay; client + 192.168.2.11:18005 = direct to QUARC)
+    port: 18010
+    bodies: [RigidBody_Drone1]        # one entry per drone in each packet, in packet order
+    fields: ['x', 'y', 'z', 'roll', 'pitch', 'yaw', 'tracked']  # packet order; keep quotes; '-z' flips a sign
+    dtype: f8                         # Simulink double
+    byte_order: '<'
+    angles_in_degrees: false          # CHECK: Simulink angles in rad or deg
+    reply_count: 0                    # receive only, the laptop never answers
+    keepalive: 0.05                   # s; repeat an unchanged pose this often (drone + map frame stay visible)
+    valid_topic_fmt: /mocap/{body}/pose_valid   # only while isTracking = 1 -> drone_link maps detections
+    topic_fmt: /mocap/{body}/pose
+    frame_id: mocap
+
+drone_link:                           # receives drone/fire_detector.py (QDrone 2, no ROS) over TCP
+  ros__parameters:
+    port: 18020
+    map_frame: map
+    base_frame: drone1/base_link
+    cam_xyz: [0.2634, 0.0, -0.0319]   # MEASURED D435 position from the mocap pivot (x fwd, y left, z up)
+    cam_rpy: [0.0, 1.5707963, 0.0]    # camera looks straight down; USB to the drone's right
+    fallback_plane_z: 0.05
+    fallback_classes: [fire, tap]     # fire 10 cm tall, tap 16 cm
+    fallback_heights: [0.08, 0.12]
+    tf_timeout: 0.15
+    dot_lifetime: 30.0                # s each raw observation dot stays in Foxglove
+    pose_topic: /drone1/mocap_pose    # real mocap poses (from mocap_tf_bridge)
+    max_pose_gap: 0.1                 # s; skip detections if the pose stream froze around the image time
+
+target_map:
+  ros__parameters:
+    map_frame: map
+    merge_radius: 0.25                # m; observations closer than this are the same object
+    min_hits: 5                       # observations before a target is confirmed
+    max_hits: 200
+    marker_size: 0.15
+    save_path: ~/fire_drone_targets.yaml
+    publish_rate: 2.0
+
+target_dispatcher:
+  ros__parameters:
+    map_frame: map
+    odom_frame: drone2/odom
+    drone2_pose_topic: /drone2/mocap_pose   # converted by mocap_tf_bridge
+    auto_origin: false                # true = use drone 2's first mocap pose as its origin
+    goal_altitude: 1.0                # m in drone2/odom; 0 = keep the target's own z
+    classes: [fire, tap]              # must match the YOLO class names
+    simulink_ip: 192.168.2.11         # host PC running host/quarc_relay.py (/targets/send goes there)
+    simulink_port: 18011
+    max_rows: 10                      # Simulink receives [count; X(10); Y(10); Z(10); Yaw(10)] = 41 doubles
+    resend_period: 0.5                # s; the snapshot is re-sent (UDP) until the next /targets/send
+    send_z: 0.5                       # m; Z of every row sent to Simulink (only X, Y come from the map; Yaw = 0)

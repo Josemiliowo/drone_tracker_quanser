@@ -1,0 +1,113 @@
+{
+  "configById": {
+    "3D!map": {
+      "cameraState": {
+        "distance": 8,
+        "perspective": true,
+        "phi": 50,
+        "thetaOffset": 45,
+        "targetOffset": [0, 0, 0],
+        "target": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-none",
+      "followTf": "map",
+      "scene": { "enableStats": false },
+      "transforms": { "labelSize": 0.08, "axisScale": 0.4 },
+      "topics": {
+        "/drone1/cloud": {
+          "visible": true,
+          "decayTime": 60,
+          "pointSize": 3,
+          "colorField": "rgb",
+          "colorMode": "rgb"
+        },
+        "/targets/markers": { "visible": true },
+        "/drone_models": { "visible": true },
+        "/drone1/observation_markers": { "visible": true },
+        "/drone2/goals": { "visible": true, "type": "arrow" }
+      },
+      "layers": {
+        "grid": {
+          "layerId": "foxglove.Grid",
+          "visible": true,
+          "frameId": "map",
+          "size": 10,
+          "divisions": 10,
+          "lineWidth": 1,
+          "color": "#248eff",
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0],
+          "order": 1
+        }
+      },
+      "publish": {
+        "type": "pose_estimate",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/drone2/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26
+      }
+    },
+    "Image!cam": {
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [0, 0, 0],
+        "targetOffset": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "thetaOffset": 45,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "publish": { "type": "point" },
+      "imageMode": { "imageTopic": "/drone1/detections/image/compressed" }
+    },
+    "RawMessages!targets": {
+      "topicPath": "/targets",
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "expansion": "all"
+    },
+    "RawMessages!goals": {
+      "topicPath": "/drone2/goal_classes",
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": { "speed": 1 },
+  "layout": {
+    "first": "3D!map",
+    "second": {
+      "first": "Image!cam",
+      "second": {
+        "first": "RawMessages!targets",
+        "second": "RawMessages!goals",
+        "direction": "column",
+        "splitPercentage": 60
+      },
+      "direction": "column",
+      "splitPercentage": 50
+    },
+    "direction": "row",
+    "splitPercentage": 65
+  }
+}
